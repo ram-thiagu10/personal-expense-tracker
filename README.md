@@ -41,9 +41,9 @@ From then on, records, categories, edits, and deletions sync to both devices. Th
 
 ### If you already created a household but are asked to create or join again
 
-Run [`supabase/fix-membership-loading.sql`](supabase/fix-membership-loading.sql) once in Supabase SQL Editor. It restores a missing creator membership, recreates the lookup function used by older deployed pages, and reloads the Supabase schema cache. Then redeploy the latest static files and hard-refresh the browser.
+Run [`supabase/fix-membership-loading.sql`](supabase/fix-membership-loading.sql) once in Supabase SQL Editor. It restores a missing creator membership, recreates the secure lookup used when row-level security hides direct table results, and reloads the Supabase schema cache. Then redeploy the latest static files and hard-refresh the browser.
 
-The updated app loads the household through the signed-in membership directly. If you still see the old error after running the SQL and redeploying, the browser is still receiving an older frontend file.
+The updated app checks the signed-in creator and membership first, then uses the secure lookup as a fallback. If that function is missing, the app displays an instruction to run the SQL above instead of silently showing household setup. Sign-in sessions are persisted and refreshed by Supabase across page reloads until the user signs out or the session expires.
 
 ## Local version
 

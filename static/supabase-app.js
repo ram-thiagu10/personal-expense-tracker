@@ -1,7 +1,9 @@
 /* Global supabase is loaded from the official browser CDN in index.html. */
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const configured = window.SUPABASE_URL?.startsWith('https://') && window.SUPABASE_ANON_KEY && !window.SUPABASE_ANON_KEY.includes('YOUR_');
-const sb = configured ? window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY) : null;
+const sb = configured ? window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY, {
+  auth: {autoRefreshToken:true,detectSessionInUrl:true,persistSession:true}
+}) : null;
 let household = null, categories = [], expenses = [], owner = 'common', activePeriod = 'month';
 const money = n => new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(n || 0);
 const today = () => new Date().toISOString().slice(0,10);
@@ -23,27 +25,36 @@ function showMembershipError(error){
   $('#setup').hidden=false;$('#authPanel').hidden=true;$('#householdPanel').hidden=true;fail(error);
 }
 async function openHousehold(data){
-  household=data; $('#householdLabel').textContent=data.name; $('#setup').hidden=true; $('#app').hidden=false; clearAppError();renderInviteCard();await refresh();
+  household=data; $('#householdLabel').textContent=data.name; $('#setup').hidden=true; $('#app').hidden=false; clearAppError();switchView('dashboard');renderInviteCard();await refresh();
 }
 async function loadMembership(){
   clearAppError();
   const {data:{user},error:userError}=await sb.auth.getUser();
   if(userError){showMembershipError(userError);return false;}
   if(!user){$('#setup').hidden=false;$('#authPanel').hidden=false;$('#householdPanel').hidden=true;return false;}
+  const loadViaRpc=async(hasMembership=false)=>{
+    const {data,error}=await sb.rpc('current_household').maybeSingle();
+    if(error){
+      showMembershipError(new Error(`Could not load your existing household. Run supabase/fix-membership-loading.sql in Supabase SQL Editor, then refresh. Details: ${error.message}`));
+      return false;
+    }
+    if(data){await openHousehold(data);return true;}
+    if(hasMembership){showMembershipError(new Error('Your account has a household membership, but its household lookup returned no result. Run supabase/repair-existing-household.sql in Supabase SQL Editor.'));return false;}
+    showHouseholdSetup();return false;
+  };
   const {data:ownedHousehold,error:ownedHouseholdError}=await sb.from('households')
     .select('id,name,invite_code').eq('created_by',user.id).maybeSingle();
-  if(ownedHouseholdError){showMembershipError(ownedHouseholdError);return false;}
+  if(ownedHouseholdError)return loadViaRpc();
   if(ownedHousehold){await openHousehold(ownedHousehold);return true;}
   const {data:membership,error:membershipError}=await sb.from('household_members')
     .select('household_id').eq('user_id',user.id).limit(1).maybeSingle();
-  if(membershipError){showMembershipError(membershipError);return false;}
+  if(membershipError)return loadViaRpc();
   if(!membership){
-    showHouseholdSetup();return false;
+    return loadViaRpc();
   }
   const {data:memberHousehold,error:memberHouseholdError}=await sb.from('households')
     .select('id,name,invite_code').eq('id',membership.household_id).maybeSingle();
-  if(memberHouseholdError){showMembershipError(memberHouseholdError);return false;}
-  if(!memberHousehold){showMembershipError(new Error('Your membership was found, but its household is not visible to this account.'));return false;}
+  if(memberHouseholdError||!memberHousehold)return loadViaRpc(true);
   await openHousehold(memberHousehold);return true;
 }
 function renderInviteCard(){let card=$('#inviteCard');if(!card){card=document.createElement('div');card.id='inviteCard';card.className='invite-card';$('#settings').append(card);}card.innerHTML=`<div><p class="eyebrow">SHARE WITH YOUR WIFE</p><b>Household invite code</b><code>${esc(household.invite_code)}</code><small>She can use this after creating her own account.</small></div><button class="outline" id="copyInvite">Copy code</button>`;$('#copyInvite').onclick=async()=>{try{await navigator.clipboard.writeText(household.invite_code);toast('Invite code copied.')}catch{toast(`Invite code: ${household.invite_code}`)}};}
@@ -67,8 +78,9 @@ window.editCategory=id=>showCategory(categories.find(c=>c.id===id));window.delet
 
 $('#authForm').onsubmit=async e=>{e.preventDefault();const button=$('#signIn');button.disabled=true;button.textContent='Signing in…';clearAppError();try{const {error}=await sb.auth.signInWithPassword({email:$('#authEmail').value.trim(),password:$('#authPassword').value});if(error)throw error;showHouseholdSetup();await loadMembership();}catch(error){$('#authPanel').hidden=false;$('#householdPanel').hidden=true;fail(error)}finally{button.disabled=false;button.textContent='Sign in';}};
 $('#signUp').onclick=async()=>{const email=$('#authEmail').value,password=$('#authPassword').value;if(!email||!password)return toast('Enter an email and password first.');const {data,error}=await sb.auth.signUp({email,password,options:{emailRedirectTo:window.location.origin+window.location.pathname}});if(error)return fail(error);toast(data.session?'Account created.':'Check your email to confirm your account, then sign in.');};
-$('#createHousehold').onclick=()=>{$('#createForm').hidden=false;$('#joinForm').hidden=true};$('#joinHousehold').onclick=()=>{$('#joinForm').hidden=false;$('#createForm').hidden=true};
-$('#createForm').onsubmit=async e=>{e.preventDefault();const {data,error}=await sb.rpc('create_household',{household_name:$('#householdName').value.trim(),member_name:$('#createMemberName').value.trim()});if(error){if(error.message?.includes('already belong to a household')){if(await loadMembership()){toast('You already belong to this household.');return;}return fail(new Error('Your account already has a household membership, but it could not be loaded. Check that the app is connected to the same Supabase project and that household_members and households are readable for your account.'));}return fail(error);}const result=Array.isArray(data)?data[0]:data;if(!result?.household_id||!result?.invite_code)return fail(new Error('Household creation returned no household details.'));await openHousehold({id:result.household_id,name:$('#householdName').value.trim(),invite_code:result.invite_code});toast('Household created. Your invite code is saved in Categories.');};
+$('#createHousehold').onclick=()=>{$('#setupChoices').hidden=true;$('#createForm').hidden=false;$('#joinForm').hidden=true};$('#joinHousehold').onclick=()=>{$('#setupChoices').hidden=true;$('#joinForm').hidden=false;$('#createForm').hidden=true};
+$('#backFromCreate').onclick=()=>{$('#createForm').hidden=true;$('#setupChoices').hidden=false};$('#backFromJoin').onclick=()=>{$('#joinForm').hidden=true;$('#setupChoices').hidden=false};
+$('#createForm').onsubmit=async e=>{e.preventDefault();const {data,error}=await sb.rpc('create_household',{household_name:$('#householdName').value.trim(),member_name:$('#createMemberName').value.trim()});if(error){if(error.message?.includes('already belong to a household')){if(await loadMembership())return;return fail(new Error('Your account already has a household membership, but it could not be loaded. Check that the app is connected to the same Supabase project and that household_members and households are readable for your account.'));}return fail(error);}const result=Array.isArray(data)?data[0]:data;if(!result?.household_id||!result?.invite_code)return fail(new Error('Household creation returned no household details.'));await openHousehold({id:result.household_id,name:$('#householdName').value.trim(),invite_code:result.invite_code});toast('Household created. Your invite code is saved in Categories.');};
 $('#joinForm').onsubmit=async e=>{e.preventDefault();const {error}=await sb.rpc('join_household',{code:$('#inviteCode').value,member_name:$('#joinMemberName').value});if(error)return fail(error);toast('Joined household.');await loadMembership();};
 $('#signOut').onclick=()=>sb.auth.signOut();$('#newExpense').onclick=()=>showExpense();$('#newCategory').onclick=()=>showCategory();$('#quickCategory').onclick=()=>showCategory();$$('.close').forEach(b=>b.onclick=()=>b.closest('dialog').close());$$('.owner').forEach(b=>b.onclick=()=>setOwner(b.dataset.owner));
 $('#expenseForm').onsubmit=async e=>{e.preventDefault();const id=$('#expenseId').value,payload={household_id:household.id,amount:+$('#amount').value,category_id:+$('#category').value,expense_date:$('#expenseDate').value,ownership:owner==='common'?'common':'personal',person:owner==='common'?null:owner,note:$('#note').value.trim(),updated_at:new Date().toISOString()};const q=id?sb.from('expenses').update(payload).eq('id',id).eq('household_id',household.id):sb.from('expenses').insert(payload);const {error}=await q;if(error)return fail(error);$('#expenseDialog').close();toast(id?'Expense updated':'Expense saved');refresh();};
