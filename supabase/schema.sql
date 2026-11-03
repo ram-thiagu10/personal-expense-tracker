@@ -35,6 +35,7 @@ create table public.expenses (
   expense_date date not null,
   ownership text not null check (ownership in ('common', 'personal')),
   person text,
+  paid_by uuid references auth.users(id) on delete set null,
   note text not null default '' check (char_length(note) <= 160),
   created_by uuid not null default auth.uid() references auth.users(id),
   created_at timestamptz not null default now(),
