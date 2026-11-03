@@ -39,11 +39,11 @@ Homeflow has two ways to run:
 
 From then on, records, categories, edits, and deletions sync to both devices. The app does not expose household data to anyone who has not signed in and joined that household.
 
-### If you created the database before the membership-loading update
+### If you already created a household but are asked to create or join again
 
-Run [`supabase/fix-membership-loading.sql`](supabase/fix-membership-loading.sql) once in Supabase SQL Editor, then redeploy the updated static files. It adds the secure lookup used to open the existing household after sign-in.
+Redeploy the latest static files. The app now finds your household through your signed-in membership, so it does not depend on the `current_household` database function or its schema cache.
 
-If a household was already created but the creator is repeatedly offered Create/Join after signing in, run [`supabase/repair-existing-household.sql`](supabase/repair-existing-household.sql) instead. It safely restores the creator membership and replaces the signed-in household lookup.
+If the creator membership is missing, run [`supabase/repair-existing-household.sql`](supabase/repair-existing-household.sql) once in Supabase SQL Editor. It safely restores that membership; then sign in again.
 
 ## Local version
 

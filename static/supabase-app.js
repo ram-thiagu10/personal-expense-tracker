@@ -23,9 +23,13 @@ async function openHousehold(data){
   household=data; $('#householdLabel').textContent=data.name; $('#setup').hidden=true; $('#app').hidden=false; clearAppError();renderInviteCard();await refresh();
 }
 async function loadMembership(){
-  const {data,error}=await sb.rpc('current_household').maybeSingle(); if(error){fail(error);return false;}
+  const {data:membership,error:membershipError}=await sb.from('household_members').select('household_id').maybeSingle();
+  if(membershipError){fail(membershipError);return false;}
   $('#setup').hidden=false;
-  if(!data){showHouseholdSetup();return false;}
+  if(!membership){showHouseholdSetup();return false;}
+  const {data,error}=await sb.from('households').select('id,name,invite_code').eq('id',membership.household_id).maybeSingle();
+  if(error){fail(error);return false;}
+  if(!data){fail(new Error('Your household membership exists, but the household could not be loaded.'));return false;}
   await openHousehold(data);return true;
 }
 function renderInviteCard(){let card=$('#inviteCard');if(!card){card=document.createElement('div');card.id='inviteCard';card.className='invite-card';$('#settings').append(card);}card.innerHTML=`<div><p class="eyebrow">SHARE WITH YOUR WIFE</p><b>Household invite code</b><code>${esc(household.invite_code)}</code><small>She can use this after creating her own account.</small></div><button class="outline" id="copyInvite">Copy code</button>`;$('#copyInvite').onclick=async()=>{try{await navigator.clipboard.writeText(household.invite_code);toast('Invite code copied.')}catch{toast(`Invite code: ${household.invite_code}`)}};}
