@@ -19,26 +19,32 @@ async function sessionStart(){
   sb.auth.onAuthStateChange(event=>{if(event==='SIGNED_OUT'){household=null;$('#app').hidden=true;$('#setup').hidden=false;$('#authPanel').hidden=false;$('#householdPanel').hidden=true;}});
 }
 function showHouseholdSetup(){clearAppError();$('#setup').hidden=false;$('#authPanel').hidden=true;$('#householdPanel').hidden=false;}
+function showMembershipError(error){
+  $('#setup').hidden=false;$('#authPanel').hidden=true;$('#householdPanel').hidden=true;fail(error);
+}
 async function openHousehold(data){
   household=data; $('#householdLabel').textContent=data.name; $('#setup').hidden=true; $('#app').hidden=false; clearAppError();renderInviteCard();await refresh();
 }
 async function loadMembership(){
-  $('#setup').hidden=true;clearAppError();
+  clearAppError();
   const {data:{user},error:userError}=await sb.auth.getUser();
-  if(userError){fail(userError);$('#setup').hidden=false;return false;}
+  if(userError){showMembershipError(userError);return false;}
   if(!user){$('#setup').hidden=false;$('#authPanel').hidden=false;$('#householdPanel').hidden=true;return false;}
-  const {data:membership,error:membershipError}=await sb.from('household_members').select('household_id').eq('user_id',user.id).limit(1).maybeSingle();
-  if(membershipError){fail(membershipError);return false;}
-  const query=sb.from('households').select('id,name,invite_code');
-  const {data,error}=await (membership
-    ? query.eq('id',membership.household_id).maybeSingle()
-    : query.eq('created_by',user.id).maybeSingle());
-  if(error){fail(error);return false;}
-  if(!data&&!membership){
+  const {data:ownedHousehold,error:ownedHouseholdError}=await sb.from('households')
+    .select('id,name,invite_code').eq('created_by',user.id).maybeSingle();
+  if(ownedHouseholdError){showMembershipError(ownedHouseholdError);return false;}
+  if(ownedHousehold){await openHousehold(ownedHousehold);return true;}
+  const {data:membership,error:membershipError}=await sb.from('household_members')
+    .select('household_id').eq('user_id',user.id).limit(1).maybeSingle();
+  if(membershipError){showMembershipError(membershipError);return false;}
+  if(!membership){
     showHouseholdSetup();return false;
   }
-  if(!data){fail(new Error('Your household membership exists, but the household could not be loaded.'));return false;}
-  await openHousehold(data);return true;
+  const {data:memberHousehold,error:memberHouseholdError}=await sb.from('households')
+    .select('id,name,invite_code').eq('id',membership.household_id).maybeSingle();
+  if(memberHouseholdError){showMembershipError(memberHouseholdError);return false;}
+  if(!memberHousehold){showMembershipError(new Error('Your membership was found, but its household is not visible to this account.'));return false;}
+  await openHousehold(memberHousehold);return true;
 }
 function renderInviteCard(){let card=$('#inviteCard');if(!card){card=document.createElement('div');card.id='inviteCard';card.className='invite-card';$('#settings').append(card);}card.innerHTML=`<div><p class="eyebrow">SHARE WITH YOUR WIFE</p><b>Household invite code</b><code>${esc(household.invite_code)}</code><small>She can use this after creating her own account.</small></div><button class="outline" id="copyInvite">Copy code</button>`;$('#copyInvite').onclick=async()=>{try{await navigator.clipboard.writeText(household.invite_code);toast('Invite code copied.')}catch{toast(`Invite code: ${household.invite_code}`)}};}
 async function loadCategories(){const {data,error}=await sb.from('categories').select('*').eq('household_id',household.id).order('name');if(error)throw error;categories=data;
