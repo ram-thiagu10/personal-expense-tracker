@@ -39,6 +39,10 @@ Homeflow has two ways to run:
 
 From then on, records, categories, edits, and deletions sync to both devices. The app does not expose household data to anyone who has not signed in and joined that household.
 
+### If you created the database before the membership-loading update
+
+Run [`supabase/fix-membership-loading.sql`](supabase/fix-membership-loading.sql) once in Supabase SQL Editor, then redeploy the updated static files. It adds the secure lookup used to open the existing household after sign-in.
+
 ## Local version
 
 For an offline, one-computer copy, run:

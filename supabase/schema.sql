@@ -79,6 +79,16 @@ begin
   return target_id;
 end; $$;
 
+create or replace function public.current_household()
+returns table (id uuid, name text, invite_code text)
+language sql security definer set search_path = public stable as $$
+  select h.id, h.name, h.invite_code
+  from public.households h
+  join public.household_members hm on hm.household_id = h.id
+  where hm.user_id = auth.uid()
+  limit 1;
+$$;
+
 alter table public.households enable row level security;
 alter table public.household_members enable row level security;
 alter table public.categories enable row level security;
@@ -99,6 +109,8 @@ create policy "members remove expenses" on public.expenses for delete using (pub
 grant execute on function public.create_household(text, text) to authenticated;
 grant execute on function public.join_household(text, text) to authenticated;
 grant execute on function public.is_household_member(uuid) to authenticated;
+grant execute on function public.current_household() to authenticated;
 revoke execute on function public.create_household(text, text) from public;
 revoke execute on function public.join_household(text, text) from public;
 revoke execute on function public.is_household_member(uuid) from public;
+revoke execute on function public.current_household() from public;
