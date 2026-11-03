@@ -12,11 +12,22 @@ function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show'
 function showAppError(message){let box=$('#authError');if(!box){box=document.createElement('p');box.id='authError';box.className='app-error';$('#setup .setup-card').append(box);}box.textContent=message;box.hidden=false;}
 function clearAppError(){const box=$('#authError');if(box)box.hidden=true;}
 function fail(e){const message=e?.message || 'Something went wrong. Please try again.';showAppError(message);toast(message);}
+function showSignIn(){
+  household=null;categories=[];expenses=[];$('#app').hidden=true;$('#setup').hidden=false;
+  $('#authPanel').hidden=false;$('#householdPanel').hidden=true;$('#authPassword').value='';
+}
+async function signOut(){
+  const button=$('#signOut');button.disabled=true;
+  const {error}=await sb.auth.signOut({scope:'local'});
+  button.disabled=false;
+  if(error){toast(`Sign out failed: ${error.message}`);return;}
+  showSignIn();toast('Signed out.');
+}
 function isDeletedUserSessionError(error){return error?.message?.includes('User from sub claim in JWT does not exist');}
 async function showSignInForDeletedUser(){
   const {error}=await sb.auth.signOut({scope:'local'});
   if(error)console.error('Could not clear the deleted user session:',error);
-  household=null;$('#app').hidden=true;$('#setup').hidden=false;$('#authPanel').hidden=false;$('#householdPanel').hidden=true;$('#authPassword').value='';
+  showSignIn();
   showAppError('This account was deleted. Sign in with an existing account or create a new one.');
 }
 function dateText(d){return new Date(d+'T12:00').toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}
@@ -25,7 +36,7 @@ async function sessionStart(){
   if(!configured){$('#authPanel').innerHTML='<p class="eyebrow">CONFIGURATION NEEDED</p><h1>Connect your database.</h1><p class="setup-copy">Copy <code>config.example.js</code> to <code>config.js</code>, then add your Supabase Project URL and publishable key.</p>';return;}
   const {data:{session}}=await sb.auth.getSession();
   if(session) await loadMembership(); else $('#setup').hidden=false;
-  sb.auth.onAuthStateChange(event=>{if(event==='SIGNED_OUT'){household=null;$('#app').hidden=true;$('#setup').hidden=false;$('#authPanel').hidden=false;$('#householdPanel').hidden=true;}});
+  sb.auth.onAuthStateChange(event=>{if(event==='SIGNED_OUT')showSignIn();});
 }
 function showHouseholdSetup(){clearAppError();$('#setup').hidden=false;$('#authPanel').hidden=true;$('#householdPanel').hidden=false;}
 function showMembershipError(error){
@@ -89,7 +100,7 @@ $('#createHousehold').onclick=()=>{$('#setupChoices').hidden=true;$('#createForm
 $('#backFromCreate').onclick=()=>{$('#createForm').hidden=true;$('#setupChoices').hidden=false};$('#backFromJoin').onclick=()=>{$('#joinForm').hidden=true;$('#setupChoices').hidden=false};
 $('#createForm').onsubmit=async e=>{e.preventDefault();const {data,error}=await sb.rpc('create_household',{household_name:$('#householdName').value.trim(),member_name:$('#createMemberName').value.trim()});if(error){if(error.message?.includes('already belong to a household')){if(await loadMembership())return;return fail(new Error('Your account already has a household membership, but it could not be loaded. Check that the app is connected to the same Supabase project and that household_members and households are readable for your account.'));}return fail(error);}const result=Array.isArray(data)?data[0]:data;if(!result?.household_id||!result?.invite_code)return fail(new Error('Household creation returned no household details.'));await openHousehold({id:result.household_id,name:$('#householdName').value.trim(),invite_code:result.invite_code});toast('Household created. Your invite code is saved in Categories.');};
 $('#joinForm').onsubmit=async e=>{e.preventDefault();const {error}=await sb.rpc('join_household',{code:$('#inviteCode').value,member_name:$('#joinMemberName').value});if(error)return fail(error);toast('Joined household.');await loadMembership();};
-$('#signOut').onclick=()=>sb.auth.signOut();$('#newExpense').onclick=()=>showExpense();$('#newCategory').onclick=()=>showCategory();$('#quickCategory').onclick=()=>showCategory();$$('.close').forEach(b=>b.onclick=()=>b.closest('dialog').close());$$('.owner').forEach(b=>b.onclick=()=>setOwner(b.dataset.owner));
+$('#signOut').onclick=signOut;$('#newExpense').onclick=()=>showExpense();$('#newCategory').onclick=()=>showCategory();$('#quickCategory').onclick=()=>showCategory();$$('.close').forEach(b=>b.onclick=()=>b.closest('dialog').close());$$('.owner').forEach(b=>b.onclick=()=>setOwner(b.dataset.owner));
 $('#expenseForm').onsubmit=async e=>{e.preventDefault();const id=$('#expenseId').value,payload={household_id:household.id,amount:+$('#amount').value,category_id:+$('#category').value,expense_date:$('#expenseDate').value,ownership:owner==='common'?'common':'personal',person:owner==='common'?null:owner,note:$('#note').value.trim(),updated_at:new Date().toISOString()};const q=id?sb.from('expenses').update(payload).eq('id',id).eq('household_id',household.id):sb.from('expenses').insert(payload);const {error}=await q;if(error)return fail(error);$('#expenseDialog').close();toast(id?'Expense updated':'Expense saved');refresh();};
 $('#categoryForm').onsubmit=async e=>{e.preventDefault();const id=$('#categoryId').value,payload={household_id:household.id,name:$('#categoryName').value.trim(),color:$('#categoryColor').value};const {data,error}=id?await sb.from('categories').update(payload).eq('id',id).eq('household_id',household.id).select().single():await sb.from('categories').insert(payload).select().single();if(error)return fail(error);$('#categoryDialog').close();await loadCategories();if(!id&&$('#expenseDialog').open)$('#category').value=data.id;toast(id?'Category updated':'Category added');};
 $$('.nav').forEach(b=>b.onclick=()=>switchView(b.dataset.view));$$('[data-switch]').forEach(b=>b.onclick=()=>switchView(b.dataset.switch));function switchView(v){$$('.view,.nav').forEach(x=>x.classList.toggle('active',x.id===v||x.dataset.view===v));$('#pageTitle').textContent=v==='dashboard'?'A clearer view of your spending.':v==='expenses'?'Every expense, in one place.':'Make the tracker yours.';}
