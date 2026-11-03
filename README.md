@@ -39,7 +39,7 @@ Homeflow has two ways to run:
 
 From then on, records, categories, edits, and deletions sync to both devices. The app does not expose household data to anyone who has not signed in and joined that household.
 
-To support personal expense owners for every household member and payer tracking on shared expenses, run [`supabase/dynamic-expense-owners.sql`](supabase/dynamic-expense-owners.sql) and [`supabase/shared-expense-payer.sql`](supabase/shared-expense-payer.sql) in Supabase SQL Editor, then deploy the updated root `index.html`, `static/supabase-app.js`, and `static/style.css`. Shared expenses can record which household member paid; older expenses without a recorded payer remain unchanged. The dashboard includes a person-wise spending donut and an expense-count-by-category chart for the selected date range.
+To support personal expense owners for every household member and payer tracking on shared expenses, run [`supabase/dynamic-expense-owners.sql`](supabase/dynamic-expense-owners.sql) and [`supabase/shared-expense-payer.sql`](supabase/shared-expense-payer.sql) in Supabase SQL Editor, then deploy the updated root `index.html`, `static/supabase-app.js`, and `static/style.css`. Shared expenses can record which household member paid; the dashboard shows each member's recorded paid total for the selected date range, and older expenses without a recorded payer remain unassigned. The dashboard also includes a person-wise spending donut and an expense-count-by-category chart for the selected date range.
 
 ### If you already created a household but are asked to create or join again
 
