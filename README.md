@@ -41,9 +41,9 @@ From then on, records, categories, edits, and deletions sync to both devices. Th
 
 ### If you already created a household but are asked to create or join again
 
-Redeploy the latest static files. The app now finds your household through your signed-in membership, so it does not depend on the `current_household` database function or its schema cache.
+Run [`supabase/fix-membership-loading.sql`](supabase/fix-membership-loading.sql) once in Supabase SQL Editor. It restores a missing creator membership, recreates the lookup function used by older deployed pages, and reloads the Supabase schema cache. Then redeploy the latest static files and hard-refresh the browser.
 
-If the creator membership is missing, run [`supabase/repair-existing-household.sql`](supabase/repair-existing-household.sql) once in Supabase SQL Editor. It safely restores that membership; then sign in again.
+The updated app loads the household through the signed-in membership directly. If you still see the old error after running the SQL and redeploying, the browser is still receiving an older frontend file.
 
 ## Local version
 
