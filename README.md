@@ -43,6 +43,8 @@ From then on, records, categories, edits, and deletions sync to both devices. Th
 
 Run [`supabase/fix-membership-loading.sql`](supabase/fix-membership-loading.sql) once in Supabase SQL Editor, then redeploy the updated static files. It adds the secure lookup used to open the existing household after sign-in.
 
+If a household was already created but the creator is repeatedly offered Create/Join after signing in, run [`supabase/repair-existing-household.sql`](supabase/repair-existing-household.sql) instead. It safely restores the creator membership and replaces the signed-in household lookup.
+
 ## Local version
 
 For an offline, one-computer copy, run:

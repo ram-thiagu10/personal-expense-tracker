@@ -84,8 +84,12 @@ returns table (id uuid, name text, invite_code text)
 language sql security definer set search_path = public stable as $$
   select h.id, h.name, h.invite_code
   from public.households h
-  join public.household_members hm on hm.household_id = h.id
-  where hm.user_id = auth.uid()
+  where h.created_by = auth.uid()
+     or exists (
+       select 1 from public.household_members hm
+       where hm.household_id = h.id and hm.user_id = auth.uid()
+     )
+  order by h.created_at
   limit 1;
 $$;
 
