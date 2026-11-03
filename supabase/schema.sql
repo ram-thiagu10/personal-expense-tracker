@@ -34,7 +34,7 @@ create table public.expenses (
   category_id bigint not null references public.categories(id) on delete restrict,
   expense_date date not null,
   ownership text not null check (ownership in ('common', 'personal')),
-  person text check (person in ('You', 'Wife')),
+  person text,
   note text not null default '' check (char_length(note) <= 160),
   created_by uuid not null default auth.uid() references auth.users(id),
   created_at timestamptz not null default now(),
@@ -99,7 +99,7 @@ alter table public.categories enable row level security;
 alter table public.expenses enable row level security;
 
 create policy "members view their household" on public.households for select using (public.is_household_member(id));
-create policy "members view own membership" on public.household_members for select using (user_id = auth.uid());
+create policy "members view household roster" on public.household_members for select using (public.is_household_member(household_id));
 create policy "members view categories" on public.categories for select using (public.is_household_member(household_id));
 create policy "members add categories" on public.categories for insert with check (public.is_household_member(household_id));
 create policy "members change categories" on public.categories for update using (public.is_household_member(household_id)) with check (public.is_household_member(household_id));

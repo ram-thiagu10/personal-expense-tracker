@@ -39,6 +39,8 @@ Homeflow has two ways to run:
 
 From then on, records, categories, edits, and deletions sync to both devices. The app does not expose household data to anyone who has not signed in and joined that household.
 
+To support personal expense owners for every household member, run [`supabase/dynamic-expense-owners.sql`](supabase/dynamic-expense-owners.sql) once in Supabase SQL Editor, then deploy the updated root `index.html`, `static/supabase-app.js`, and `static/style.css`.
+
 ### If you already created a household but are asked to create or join again
 
 Run [`supabase/fix-membership-loading.sql`](supabase/fix-membership-loading.sql) once in Supabase SQL Editor. It restores a missing creator membership, recreates the secure lookup used when row-level security hides direct table results, and reloads the Supabase schema cache. Then redeploy the latest static files and hard-refresh the browser.
