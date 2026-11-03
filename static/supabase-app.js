@@ -7,7 +7,9 @@ const money = n => new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR
 const today = () => new Date().toISOString().slice(0,10);
 const esc = s => String(s || '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000)}
-function fail(e){toast(e.message || 'Something went wrong. Please try again.');}
+function showAppError(message){let box=$('#authError');if(!box){box=document.createElement('p');box.id='authError';box.className='app-error';$('#setup .setup-card').append(box);}box.textContent=message;box.hidden=false;}
+function clearAppError(){const box=$('#authError');if(box)box.hidden=true;}
+function fail(e){const message=e?.message || 'Something went wrong. Please try again.';showAppError(message);toast(message);}
 function dateText(d){return new Date(d+'T12:00').toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}
 
 async function sessionStart(){
@@ -16,12 +18,13 @@ async function sessionStart(){
   if(session) await loadMembership(); else $('#setup').hidden=false;
   sb.auth.onAuthStateChange(async(event, session)=>{if(event==='SIGNED_OUT'){household=null;$('#app').hidden=true;$('#setup').hidden=false;$('#authPanel').hidden=false;$('#householdPanel').hidden=true;} if(event==='SIGNED_IN'&&session)await loadMembership();});
 }
+function showHouseholdSetup(){clearAppError();$('#setup').hidden=false;$('#authPanel').hidden=true;$('#householdPanel').hidden=false;}
 async function loadMembership(){
-  const {data,error}=await sb.from('household_members').select('household_id,display_name').maybeSingle(); if(error)return fail(error);
+  const {data,error}=await sb.from('household_members').select('household_id,display_name').maybeSingle(); if(error){fail(error);return false;}
   $('#setup').hidden=false;
-  if(!data){$('#authPanel').hidden=true;$('#householdPanel').hidden=false;return;}
-  const {data:home,error:homeError}=await sb.from('households').select('id,name,invite_code').eq('id',data.household_id).single(); if(homeError)return fail(homeError);
-  household=home; $('#householdLabel').textContent=home.name; $('#setup').hidden=true; $('#app').hidden=false; await refresh();
+  if(!data){showHouseholdSetup();return true;}
+  const {data:home,error:homeError}=await sb.from('households').select('id,name,invite_code').eq('id',data.household_id).single(); if(homeError){fail(homeError);return false;}
+  household=home; $('#householdLabel').textContent=home.name; $('#setup').hidden=true; $('#app').hidden=false; clearAppError(); await refresh();return true;
 }
 async function loadCategories(){const {data,error}=await sb.from('categories').select('*').eq('household_id',household.id).order('name');if(error)throw error;categories=data;
   $('#category').innerHTML='<option value="" disabled selected>Choose a category</option>'+categories.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
@@ -41,7 +44,7 @@ function showCategory(c=null){$('#categoryForm').reset();$('#categoryId').value=
 window.editExpense=id=>showExpense(expenses.find(e=>e.id===id));window.deleteExpense=async id=>{if(confirm('Remove this expense?')){const {error}=await sb.from('expenses').delete().eq('id',id).eq('household_id',household.id);if(error)return fail(error);toast('Expense removed');refresh();}};
 window.editCategory=id=>showCategory(categories.find(c=>c.id===id));window.deleteCategory=async id=>{if(confirm('Remove this category?')){const {error}=await sb.from('categories').delete().eq('id',id).eq('household_id',household.id);if(error)return fail(error.message.includes('foreign key')?'Categories in use cannot be removed.':error);toast('Category removed');refresh();}};
 
-$('#authForm').onsubmit=async e=>{e.preventDefault();const button=$('#signIn');button.disabled=true;button.textContent='Signing in…';try{const {error}=await sb.auth.signInWithPassword({email:$('#authEmail').value.trim(),password:$('#authPassword').value});if(error)throw error;await loadMembership();}catch(error){fail(error)}finally{button.disabled=false;button.textContent='Sign in';}};
+$('#authForm').onsubmit=async e=>{e.preventDefault();const button=$('#signIn');button.disabled=true;button.textContent='Signing in…';clearAppError();try{const {error}=await sb.auth.signInWithPassword({email:$('#authEmail').value.trim(),password:$('#authPassword').value});if(error)throw error;showHouseholdSetup();await loadMembership();}catch(error){$('#authPanel').hidden=false;$('#householdPanel').hidden=true;fail(error)}finally{button.disabled=false;button.textContent='Sign in';}};
 $('#signUp').onclick=async()=>{const email=$('#authEmail').value,password=$('#authPassword').value;if(!email||!password)return toast('Enter an email and password first.');const {data,error}=await sb.auth.signUp({email,password,options:{emailRedirectTo:window.location.origin+window.location.pathname}});if(error)return fail(error);toast(data.session?'Account created.':'Check your email to confirm your account, then sign in.');};
 $('#createHousehold').onclick=()=>{$('#createForm').hidden=false;$('#joinForm').hidden=true};$('#joinHousehold').onclick=()=>{$('#joinForm').hidden=false;$('#createForm').hidden=true};
 $('#createForm').onsubmit=async e=>{e.preventDefault();const {data,error}=await sb.rpc('create_household',{household_name:$('#householdName').value,member_name:$('#createMemberName').value});if(error)return fail(error);toast(`Household created. Share invite code: ${data[0].invite_code}`);await loadMembership();};
