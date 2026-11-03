@@ -45,6 +45,8 @@ Run [`supabase/fix-membership-loading.sql`](supabase/fix-membership-loading.sql)
 
 The updated app checks the signed-in creator and membership first, then uses the secure lookup as a fallback. If that function is missing, the app displays an instruction to run the SQL above instead of silently showing household setup. Sign-in sessions are persisted and refreshed by Supabase across page reloads until the user signs out or the session expires.
 
+If you delete an account in Supabase while its browser session is still saved, reload the app. It clears the invalid local session and returns to sign-in so you can create or use another account.
+
 ## Local version
 
 For an offline, one-computer copy, run:

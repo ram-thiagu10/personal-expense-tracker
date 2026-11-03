@@ -12,6 +12,13 @@ function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show'
 function showAppError(message){let box=$('#authError');if(!box){box=document.createElement('p');box.id='authError';box.className='app-error';$('#setup .setup-card').append(box);}box.textContent=message;box.hidden=false;}
 function clearAppError(){const box=$('#authError');if(box)box.hidden=true;}
 function fail(e){const message=e?.message || 'Something went wrong. Please try again.';showAppError(message);toast(message);}
+function isDeletedUserSessionError(error){return error?.message?.includes('User from sub claim in JWT does not exist');}
+async function showSignInForDeletedUser(){
+  const {error}=await sb.auth.signOut({scope:'local'});
+  if(error)console.error('Could not clear the deleted user session:',error);
+  household=null;$('#app').hidden=true;$('#setup').hidden=false;$('#authPanel').hidden=false;$('#householdPanel').hidden=true;$('#authPassword').value='';
+  showAppError('This account was deleted. Sign in with an existing account or create a new one.');
+}
 function dateText(d){return new Date(d+'T12:00').toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}
 
 async function sessionStart(){
@@ -30,7 +37,7 @@ async function openHousehold(data){
 async function loadMembership(){
   clearAppError();
   const {data:{user},error:userError}=await sb.auth.getUser();
-  if(userError){showMembershipError(userError);return false;}
+  if(userError){if(isDeletedUserSessionError(userError))await showSignInForDeletedUser();else showMembershipError(userError);return false;}
   if(!user){$('#setup').hidden=false;$('#authPanel').hidden=false;$('#householdPanel').hidden=true;return false;}
   const loadViaRpc=async(hasMembership=false)=>{
     const {data,error}=await sb.rpc('current_household').maybeSingle();
