@@ -112,6 +112,11 @@ class App(SimpleHTTPRequestHandler):
             base = " FROM expenses e JOIN categories c ON c.id=e.category_id WHERE e.expense_date BETWEEN ? AND ?"
             total = con.execute("SELECT COALESCE(SUM(amount),0)" + base, (start,end)).fetchone()[0]
             ownership = rows_to_dicts(con.execute("SELECT ownership, person, COALESCE(SUM(amount),0) total" + base + " GROUP BY ownership, person", (start,end)))
+            person_categories = rows_to_dicts(con.execute(
+                "SELECT e.ownership, e.person, c.name category, SUM(e.amount) total" + base +
+                " AND e.ownership = 'personal' GROUP BY e.ownership, e.person, c.id ORDER BY e.person, c.name",
+                (start,end),
+            ))
             categories = rows_to_dicts(con.execute("SELECT c.name, c.color, SUM(e.amount) total" + base + " GROUP BY c.id ORDER BY total DESC", (start,end)))
             trend = rows_to_dicts(con.execute("SELECT expense_date, SUM(amount) total FROM expenses WHERE expense_date BETWEEN ? AND ? GROUP BY expense_date ORDER BY expense_date", (start,end)))
             monthly_totals = rows_to_dicts(con.execute(
@@ -120,7 +125,7 @@ class App(SimpleHTTPRequestHandler):
                    GROUP BY strftime('%m', expense_date) ORDER BY month""",
                 (date(today.year, 1, 1).isoformat(), date(today.year + 1, 1, 1).isoformat()),
             ))
-        self.json_response({"start": start, "end": end, "total": total, "ownership": ownership, "categories": categories, "trend": trend, "year": today.year, "monthly_totals": monthly_totals})
+        self.json_response({"start": start, "end": end, "total": total, "ownership": ownership, "person_categories": person_categories, "categories": categories, "trend": trend, "year": today.year, "monthly_totals": monthly_totals})
 
     def export_csv(self):
         import csv, io

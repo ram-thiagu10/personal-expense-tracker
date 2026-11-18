@@ -8,8 +8,35 @@ async function loadCategories(){categories=await api('/api/categories');const op
 function renderCategorySettings(){$('#categorySettings').innerHTML=categories.map(c=>`<article class="category-card"><i class="dot" style="background:${c.color}"></i><b>${esc(c.name)}</b><button title="Edit" onclick="editCategory(${c.id})">✎</button><button title="Remove" onclick="deleteCategory(${c.id})">×</button></article>`).join('')||'<p>No categories yet.</p>'}
 function expenseRow(e){let who=e.ownership==='common'?'Shared':e.person;return `<div class="expense-row"><div class="avatar">${who==='Shared'?'⌂':who[0]}</div><div class="expense-info"><b>${esc(e.category)}</b><small>${esc(e.note)||'No note'}</small></div><span class="expense-date">${new Date(e.expense_date+'T12:00').toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</span><span class="expense-type tag">${who}</span><strong class="amount">${money(e.amount)}</strong><span class="row-actions"><button onclick="editExpense(${e.id})" title="Edit">✎</button><button onclick="deleteExpense(${e.id})" title="Delete">×</button></span></div>`}
 async function loadExpenses(){let q=new URLSearchParams;[['from','#filterFrom'],['to','#filterTo'],['ownership','#filterOwnership'],['category','#filterCategory']].forEach(([k,s])=>{if($(s).value)q.set(k,$(s).value)});expenses=await api('/api/expenses?'+q);$('#allExpenses').innerHTML=expenses.length?expenses.map(expenseRow).join(''):'<div class="empty" style="height:150px">No expenses match these filters.</div>';$('#recentList').innerHTML=expenses.slice(0,5).length?expenses.slice(0,5).map(expenseRow).join(''):'<div class="empty" style="height:120px">Start by adding your first expense.</div>'}
-function renderDashboard(d){$('#total').textContent=money(d.total);$('#rangeLabel').textContent=`${new Date(d.start+'T12:00').toLocaleDateString('en-IN',{day:'numeric',month:'short'})} – ${new Date(d.end+'T12:00').toLocaleDateString('en-IN',{day:'numeric',month:'short'})}`;let sums={common:0,You:0,Wife:0};d.ownership.forEach(x=>sums[x.ownership==='common'?'common':x.person]=x.total);$('#commonTotal').textContent=money(sums.common);$('#youTotal').textContent=money(sums.You);$('#wifeTotal').textContent=money(sums.Wife);
-const monthlyTotals=Array(12).fill(0);d.monthly_totals.forEach(item=>{monthlyTotals[item.month-1]=Number(item.total);});const max=Math.max(...monthlyTotals,1),months=Array.from({length:12},(_,i)=>new Date(d.year,i,1).toLocaleDateString('en-IN',{month:'short'})),chart=$('#trendChart');chart.classList.remove('empty');chart.classList.toggle('no-data',!monthlyTotals.some(value=>value>0));chart.setAttribute('aria-label',`Monthly expenses for ${d.year}`);chart.innerHTML=monthlyTotals.map((value,i)=>`<div class="month-column" title="${months[i]}: ${money(value)}"><div class="month-bar-area"><div class="month-bar ${value?'has-value':''}" style="height:${value?Math.max(4,value/max*100):0}%" aria-hidden="true"></div></div><span class="month-label">${months[i]}</span></div>`).join('')+(monthlyTotals.some(value=>value>0)?'':'<span class="monthly-empty">No expenses recorded this year yet.</span>');let cmax=Math.max(...d.categories.map(x=>x.total),1);$('#categoryChart').classList.toggle('empty',!d.categories.length);$('#categoryChart').innerHTML=d.categories.length?d.categories.slice(0,6).map(x=>`<div class="category-row"><i class="dot" style="background:${x.color}"></i><span>${esc(x.name)}</span><strong>${money(x.total)}</strong><div class="track"><div class="fill" style="background:${x.color};width:${x.total/cmax*100}%"></div></div></div>`).join(''):'No categories to show yet.'}
+function setPersonBreakdown(id,person,rows,total){
+  const amount=document.getElementById(id),card=amount.closest('article');
+  const investmentRows=rows.filter(row=>row.ownership==='personal'&&row.person===person);
+  const investment=investmentRows.filter(row=>row.category.trim().toLowerCase()==='investment').reduce((sum,row)=>sum+Number(row.total),0);
+  if(!investmentRows.some(row=>row.category.trim().toLowerCase()==='investment')){
+    card.innerHTML=`<span>${person==='You'?'Your personal':"Wife's personal"}</span><strong id="${id}">${money(total)}</strong><small>${person==='You'?'Only yours':'Only hers'}</small>`;
+    return;
+  }
+  card.innerHTML=`<span>${person==='You'?'Your personal':"Wife's personal"}</span><div class="person-breakdown"><div><span>Investment</span><strong>${money(investment)}</strong></div><div><span>Other expenses</span><strong>${money(total-investment)}</strong></div><div class="person-breakdown-total"><span>Total</span><strong id="${id}">${money(total)}</strong></div></div>`;
+}
+function renderDashboard(d){
+  $('#total').textContent=money(d.total);
+  $('#rangeLabel').textContent=`${new Date(d.start+'T12:00').toLocaleDateString('en-IN',{day:'numeric',month:'short'})} – ${new Date(d.end+'T12:00').toLocaleDateString('en-IN',{day:'numeric',month:'short'})}`;
+  let sums={common:0,You:0,Wife:0};
+  d.ownership.forEach(x=>sums[x.ownership==='common'?'common':x.person]=x.total);
+  $('#commonTotal').textContent=money(sums.common);
+  setPersonBreakdown('youTotal','You',d.person_categories,sums.You);
+  setPersonBreakdown('wifeTotal','Wife',d.person_categories,sums.Wife);
+  const monthlyTotals=Array(12).fill(0);
+  d.monthly_totals.forEach(item=>{monthlyTotals[item.month-1]=Number(item.total);});
+  const max=Math.max(...monthlyTotals,1),months=Array.from({length:12},(_,i)=>new Date(d.year,i,1).toLocaleDateString('en-IN',{month:'short'})),chart=$('#trendChart');
+  chart.classList.remove('empty');
+  chart.classList.toggle('no-data',!monthlyTotals.some(value=>value>0));
+  chart.setAttribute('aria-label',`Monthly expenses for ${d.year}`);
+  chart.innerHTML=monthlyTotals.map((value,i)=>`<div class="month-column" title="${months[i]}: ${money(value)}"><div class="month-bar-area"><div class="month-bar ${value?'has-value':''}" style="height:${value?Math.max(4,value/max*100):0}%" aria-hidden="true"></div></div><span class="month-label">${months[i]}</span></div>`).join('')+(monthlyTotals.some(value=>value>0)?'':'<span class="monthly-empty">No expenses recorded this year yet.</span>');
+  let cmax=Math.max(...d.categories.map(x=>x.total),1);
+  $('#categoryChart').classList.toggle('empty',!d.categories.length);
+  $('#categoryChart').innerHTML=d.categories.length?d.categories.slice(0,6).map(x=>`<div class="category-row"><i class="dot" style="background:${x.color}"></i><span>${esc(x.name)}</span><strong>${money(x.total)}</strong><div class="track"><div class="fill" style="background:${x.color};width:${x.total/cmax*100}%"></div></div></div>`).join(''):'No categories to show yet.';
+}
 async function loadDashboard(){let p=new URLSearchParams({period:activePeriod});if($('#rangeFrom').value&&$('#rangeTo').value){p.set('from',$('#rangeFrom').value);p.set('to',$('#rangeTo').value)}renderDashboard(await api('/api/dashboard?'+p))}
 function showExpense(e=null){$('#expenseForm').reset();$('#expenseId').value=e?.id||'';$('#expenseDialogTitle').textContent=e?'Edit expense':'Add an expense';$('#expenseDate').value=e?.expense_date||today();$('#amount').value=e?.amount||'';$('#note').value=e?.note||'';$('#category').value=e?.category_id||'';setOwner(e?(e.ownership==='common'?'common':e.person):'common');$('#expenseDialog').showModal();$('#amount').focus()}
 function setOwner(o){owner=o;$$('.owner').forEach(x=>x.classList.toggle('active',x.dataset.owner===o))}
