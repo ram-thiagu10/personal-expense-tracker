@@ -43,6 +43,11 @@ def bootstrap():
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 CHECK((ownership = 'common' AND person IS NULL) OR (ownership = 'personal' AND person IS NOT NULL))
             );
+            CREATE TABLE IF NOT EXISTS monthly_budgets (
+                month TEXT PRIMARY KEY CHECK(length(month) = 7),
+                amount REAL NOT NULL CHECK(amount > 0),
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
         """)
         existing = con.execute("SELECT COUNT(*) FROM categories").fetchone()[0]
         if not existing:
@@ -82,6 +87,8 @@ class App(SimpleHTTPRequestHandler):
             return self.list_expenses(parse_qs(parsed.query))
         if parsed.path == "/api/dashboard":
             return self.dashboard(parse_qs(parsed.query))
+        if parsed.path == "/api/budget":
+            return self.budget(parse_qs(parsed.query))
         if parsed.path == "/api/export":
             return self.export_csv()
         return super().do_GET()
@@ -125,7 +132,35 @@ class App(SimpleHTTPRequestHandler):
                    GROUP BY strftime('%m', expense_date) ORDER BY month""",
                 (date(today.year, 1, 1).isoformat(), date(today.year + 1, 1, 1).isoformat()),
             ))
-        self.json_response({"start": start, "end": end, "total": total, "ownership": ownership, "person_categories": person_categories, "categories": categories, "trend": trend, "year": today.year, "monthly_totals": monthly_totals})
+            current_month = today.strftime("%Y-%m")
+            current_month_start = date(today.year, today.month, 1).isoformat()
+            next_month_start = date(today.year + (today.month == 12), today.month % 12 + 1, 1).isoformat()
+            budget = con.execute("SELECT amount FROM monthly_budgets WHERE month=?", (current_month,)).fetchone()
+            budget_spent = con.execute(
+                "SELECT COALESCE(SUM(amount),0) FROM expenses WHERE expense_date >= ? AND expense_date < ?",
+                (current_month_start, next_month_start),
+            ).fetchone()[0]
+        self.json_response({"start": start, "end": end, "total": total, "ownership": ownership, "person_categories": person_categories, "categories": categories, "trend": trend, "year": today.year, "monthly_totals": monthly_totals, "budget_month": current_month, "budget": budget["amount"] if budget else None, "budget_spent": budget_spent})
+
+    def budget(self, q):
+        month = q.get("month", [date.today().strftime("%Y-%m")])[0]
+        try:
+            parsed_month = datetime.strptime(month, "%Y-%m")
+            if parsed_month.strftime("%Y-%m") != month:
+                raise ValueError
+            month_start = parsed_month.date().replace(day=1)
+            if month_start.year == 9999 and month_start.month == 12:
+                raise ValueError
+            next_month_start = date(month_start.year + (month_start.month == 12), month_start.month % 12 + 1, 1)
+        except (TypeError, ValueError):
+            return self.json_response({"error": "Choose a valid budget month."}, 400)
+        with db() as con:
+            budget = con.execute("SELECT amount FROM monthly_budgets WHERE month=?", (month,)).fetchone()
+            spent = con.execute(
+                "SELECT COALESCE(SUM(amount),0) FROM expenses WHERE expense_date >= ? AND expense_date < ?",
+                (month_start.isoformat(), next_month_start.isoformat()),
+            ).fetchone()[0]
+        self.json_response({"month": month, "budget": budget["amount"] if budget else None, "spent": spent})
 
     def export_csv(self):
         import csv, io
@@ -140,6 +175,28 @@ class App(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
 
     def do_POST(self):
+        if self.path == "/api/budget":
+            data = self.payload()
+            month = data.get("month")
+            try:
+                parsed_month = datetime.strptime(month, "%Y-%m")
+                if parsed_month.strftime("%Y-%m") != month:
+                    raise ValueError
+                amount = round(float(data["amount"]), 2)
+                if not 0 < amount <= 9999999999.99:
+                    raise ValueError
+                month_start = parsed_month.date().replace(day=1)
+                if month_start.year == 9999 and month_start.month == 12:
+                    raise ValueError
+            except (KeyError, TypeError, ValueError):
+                return self.json_response({"error": "Enter a valid month and a budget greater than zero."}, 400)
+            with db() as con:
+                con.execute(
+                    """INSERT INTO monthly_budgets(month, amount) VALUES(?, ?)
+                       ON CONFLICT(month) DO UPDATE SET amount=excluded.amount, updated_at=CURRENT_TIMESTAMP""",
+                    (month, amount),
+                )
+            return self.budget({"month": [month]})
         if self.path == "/api/categories":
             data = self.payload(); name = data.get("name", "").strip(); color = data.get("color", "#5B6CFF")
             if not name: return self.json_response({"error":"Category name is required."}, 400)

@@ -8,6 +8,30 @@ async function loadCategories(){categories=await api('/api/categories');const op
 function renderCategorySettings(){$('#categorySettings').innerHTML=categories.map(c=>`<article class="category-card"><i class="dot" style="background:${c.color}"></i><b>${esc(c.name)}</b><button title="Edit" onclick="editCategory(${c.id})">✎</button><button title="Remove" onclick="deleteCategory(${c.id})">×</button></article>`).join('')||'<p>No categories yet.</p>'}
 function expenseRow(e){let who=e.ownership==='common'?'Shared':e.person;return `<div class="expense-row"><div class="avatar">${who==='Shared'?'⌂':who[0]}</div><div class="expense-info"><b>${esc(e.category)}</b><small>${esc(e.note)||'No note'}</small></div><span class="expense-date">${new Date(e.expense_date+'T12:00').toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</span><span class="expense-type tag">${who}</span><strong class="amount">${money(e.amount)}</strong><span class="row-actions"><button onclick="editExpense(${e.id})" title="Edit">✎</button><button onclick="deleteExpense(${e.id})" title="Delete">×</button></span></div>`}
 async function loadExpenses(){let q=new URLSearchParams;[['from','#filterFrom'],['to','#filterTo'],['category','#filterCategory']].forEach(([k,s])=>{if($(s).value)q.set(k,$(s).value)});const ownerFilter=$('#filterOwnership').value;if(ownerFilter.startsWith('person:'))q.set('person',ownerFilter.slice(7));else if(ownerFilter)q.set('ownership',ownerFilter);expenses=await api('/api/expenses?'+q);$('#allExpenses').innerHTML=expenses.length?expenses.map(expenseRow).join(''):'<div class="empty" style="height:150px">No expenses match these filters.</div>';$('#recentList').innerHTML=expenses.slice(0,5).length?expenses.slice(0,5).map(expenseRow).join(''):'<div class="empty" style="height:120px">Start by adding your first expense.</div>'}
+function currentBudgetMonth(){const now=new Date();return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`}
+function ensureBudgetPanel(){
+  let panel=$('#budgetPanel');if(panel)return panel;
+  panel=document.createElement('section');panel.id='budgetPanel';panel.className='panel budget-panel';
+  panel.innerHTML='<div class="budget-header"><div><h2>Monthly budget</h2><p id="budgetMonth">This month</p></div><form id="budgetForm" class="budget-form"><label for="budgetInput">Set budget</label><div class="budget-input-row"><span>₹</span><input id="budgetInput" type="number" min="0.01" step="0.01" placeholder="Enter amount" required><button class="primary" type="submit">Save budget</button></div></form></div><div class="budget-metrics"><div><span>Monthly budget</span><strong id="budgetAmount">Not set</strong></div><div><span>Spent this month</span><strong id="budgetSpent">₹0</strong></div><div><span>Remaining budget</span><strong id="budgetRemaining">—</strong></div></div><div id="budgetTrack" class="budget-track" role="progressbar" aria-label="Monthly budget used" aria-valuemin="0"><div id="budgetProgress"></div></div><p id="budgetStatus" class="budget-status"></p>';
+  $('.period-bar').after(panel);
+  $('#budgetForm').onsubmit=async event=>{
+    event.preventDefault();const input=$('#budgetInput'),button=$('#budgetForm button'),amount=Number(input.value);
+    if(!input.reportValidity()||!Number.isFinite(amount)||amount<=0)return;
+    button.disabled=true;
+    try{await api('/api/budget',{method:'POST',body:JSON.stringify({month:currentBudgetMonth(),amount})});await loadDashboard();toast('Monthly budget saved')}
+    catch(error){toast(error.message)}
+    finally{button.disabled=false}
+  };
+  return panel;
+}
+function renderBudget(month,budget,spent){
+  ensureBudgetPanel();
+  const label=new Date(`${month}-01T12:00:00`).toLocaleDateString('en-IN',{month:'long',year:'numeric'}),remaining=budget===null?null:Number(budget)-Number(spent),progress=budget?Math.min(Number(spent)/Number(budget)*100,100):0;
+  $('#budgetMonth').textContent=label;$('#budgetInput').value=budget??'';$('#budgetAmount').textContent=budget===null?'Not set':money(budget);$('#budgetSpent').textContent=money(spent);
+  const remainingElement=$('#budgetRemaining');remainingElement.textContent=remaining===null?'—':money(remaining);remainingElement.classList.toggle('over-budget',remaining!==null&&remaining<0);
+  const track=$('#budgetTrack'),bar=$('#budgetProgress');track.setAttribute('aria-valuemax',String(budget||0));track.setAttribute('aria-valuenow',String(spent));bar.style.width=`${progress}%`;bar.classList.toggle('over-budget',Boolean(budget&&spent>budget));
+  $('#budgetStatus').textContent=budget===null?'Set a budget to track this month’s spending.':remaining<0?`Over budget by ${money(Math.abs(remaining))}.`:`${Math.round(progress)}% of this month’s budget used.`;
+}
 function setPersonBreakdown(id,person,rows,total){
   const amount=document.getElementById(id),card=amount.closest('article');
   const investmentRows=rows.filter(row=>row.ownership==='personal'&&row.person===person);
@@ -19,6 +43,7 @@ function setPersonBreakdown(id,person,rows,total){
   card.innerHTML=`<span>${person==='You'?'Your personal':"Wife's personal"}</span><div class="person-breakdown"><div><span>Investment</span><strong>${money(investment)}</strong></div><div><span>Other expenses</span><strong>${money(total-investment)}</strong></div><div class="person-breakdown-total"><span>Total</span><strong id="${id}">${money(total)}</strong></div></div>`;
 }
 function renderDashboard(d){
+  renderBudget(d.budget_month,d.budget,d.budget_spent);
   $('#total').textContent=money(d.total);
   $('#rangeLabel').textContent=`${new Date(d.start+'T12:00').toLocaleDateString('en-IN',{day:'numeric',month:'short'})} – ${new Date(d.end+'T12:00').toLocaleDateString('en-IN',{day:'numeric',month:'short'})}`;
   let sums={common:0,You:0,Wife:0};
