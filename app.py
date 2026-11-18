@@ -114,7 +114,13 @@ class App(SimpleHTTPRequestHandler):
             ownership = rows_to_dicts(con.execute("SELECT ownership, person, COALESCE(SUM(amount),0) total" + base + " GROUP BY ownership, person", (start,end)))
             categories = rows_to_dicts(con.execute("SELECT c.name, c.color, SUM(e.amount) total" + base + " GROUP BY c.id ORDER BY total DESC", (start,end)))
             trend = rows_to_dicts(con.execute("SELECT expense_date, SUM(amount) total FROM expenses WHERE expense_date BETWEEN ? AND ? GROUP BY expense_date ORDER BY expense_date", (start,end)))
-        self.json_response({"start": start, "end": end, "total": total, "ownership": ownership, "categories": categories, "trend": trend})
+            monthly_totals = rows_to_dicts(con.execute(
+                """SELECT CAST(strftime('%m', expense_date) AS INTEGER) month, SUM(amount) total
+                   FROM expenses WHERE expense_date >= ? AND expense_date < ?
+                   GROUP BY strftime('%m', expense_date) ORDER BY month""",
+                (date(today.year, 1, 1).isoformat(), date(today.year + 1, 1, 1).isoformat()),
+            ))
+        self.json_response({"start": start, "end": end, "total": total, "ownership": ownership, "categories": categories, "trend": trend, "year": today.year, "monthly_totals": monthly_totals})
 
     def export_csv(self):
         import csv, io
