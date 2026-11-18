@@ -52,6 +52,17 @@ create table public.household_budgets (
   primary key (household_id, budget_month)
 );
 
+create table public.personal_budgets (
+  household_id uuid not null references public.households(id) on delete cascade,
+  budget_month date not null check (extract(day from budget_month) = 1),
+  member_user_id uuid not null,
+  amount numeric(12,2) not null check (amount > 0),
+  updated_by uuid not null default auth.uid() references auth.users(id),
+  updated_at timestamptz not null default now(),
+  primary key (household_id, budget_month, member_user_id),
+  foreign key (household_id, member_user_id) references public.household_members(household_id, user_id) on delete cascade
+);
+
 create index expenses_household_date_idx on public.expenses (household_id, expense_date desc);
 create index categories_household_idx on public.categories (household_id);
 
@@ -108,6 +119,7 @@ alter table public.household_members enable row level security;
 alter table public.categories enable row level security;
 alter table public.expenses enable row level security;
 alter table public.household_budgets enable row level security;
+alter table public.personal_budgets enable row level security;
 
 create policy "members view their household" on public.households for select using (public.is_household_member(id));
 create policy "members view household roster" on public.household_members for select using (public.is_household_member(household_id));
@@ -122,6 +134,9 @@ create policy "members remove expenses" on public.expenses for delete using (pub
 create policy "members view household budgets" on public.household_budgets for select using (public.is_household_member(household_id));
 create policy "members add household budgets" on public.household_budgets for insert with check (public.is_household_member(household_id));
 create policy "members update household budgets" on public.household_budgets for update using (public.is_household_member(household_id)) with check (public.is_household_member(household_id));
+create policy "members view personal budgets" on public.personal_budgets for select using (public.is_household_member(household_id));
+create policy "members add personal budgets" on public.personal_budgets for insert with check (public.is_household_member(household_id));
+create policy "members update personal budgets" on public.personal_budgets for update using (public.is_household_member(household_id)) with check (public.is_household_member(household_id));
 
 -- Required for the app to call the setup functions.
 grant execute on function public.create_household(text, text) to authenticated;

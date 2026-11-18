@@ -48,6 +48,13 @@ def bootstrap():
                 amount REAL NOT NULL CHECK(amount > 0),
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS personal_budgets (
+                month TEXT NOT NULL CHECK(length(month) = 7),
+                person TEXT NOT NULL CHECK(person IN ('You', 'Wife')),
+                amount REAL NOT NULL CHECK(amount > 0),
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (month, person)
+            );
         """)
         existing = con.execute("SELECT COUNT(*) FROM categories").fetchone()[0]
         if not existing:
@@ -137,10 +144,20 @@ class App(SimpleHTTPRequestHandler):
             next_month_start = date(today.year + (today.month == 12), today.month % 12 + 1, 1).isoformat()
             budget = con.execute("SELECT amount FROM monthly_budgets WHERE month=?", (current_month,)).fetchone()
             budget_spent = con.execute(
-                "SELECT COALESCE(SUM(amount),0) FROM expenses WHERE expense_date >= ? AND expense_date < ?",
+                "SELECT COALESCE(SUM(amount),0) FROM expenses WHERE ownership='common' AND expense_date >= ? AND expense_date < ?",
                 (current_month_start, next_month_start),
             ).fetchone()[0]
-        self.json_response({"start": start, "end": end, "total": total, "ownership": ownership, "person_categories": person_categories, "categories": categories, "trend": trend, "year": today.year, "monthly_totals": monthly_totals, "budget_month": current_month, "budget": budget["amount"] if budget else None, "budget_spent": budget_spent})
+            personal_budgets = rows_to_dicts(con.execute(
+                """SELECT people.person, b.amount budget,
+                          COALESCE(SUM(e.amount), 0) spent
+                   FROM (SELECT 'You' person UNION ALL SELECT 'Wife') people
+                   LEFT JOIN personal_budgets b ON b.month=? AND b.person=people.person
+                   LEFT JOIN expenses e ON e.person=people.person AND e.ownership='personal'
+                       AND e.expense_date >= ? AND e.expense_date < ?
+                   GROUP BY people.person, b.amount ORDER BY people.person""",
+                (current_month, current_month_start, next_month_start),
+            ))
+        self.json_response({"start": start, "end": end, "total": total, "ownership": ownership, "person_categories": person_categories, "categories": categories, "trend": trend, "year": today.year, "monthly_totals": monthly_totals, "budget_month": current_month, "budget": budget["amount"] if budget else None, "budget_spent": budget_spent, "personal_budgets": personal_budgets})
 
     def budget(self, q):
         month = q.get("month", [date.today().strftime("%Y-%m")])[0]
@@ -157,10 +174,20 @@ class App(SimpleHTTPRequestHandler):
         with db() as con:
             budget = con.execute("SELECT amount FROM monthly_budgets WHERE month=?", (month,)).fetchone()
             spent = con.execute(
-                "SELECT COALESCE(SUM(amount),0) FROM expenses WHERE expense_date >= ? AND expense_date < ?",
+                "SELECT COALESCE(SUM(amount),0) FROM expenses WHERE ownership='common' AND expense_date >= ? AND expense_date < ?",
                 (month_start.isoformat(), next_month_start.isoformat()),
             ).fetchone()[0]
-        self.json_response({"month": month, "budget": budget["amount"] if budget else None, "spent": spent})
+            personal_budgets = rows_to_dicts(con.execute(
+                """SELECT people.person, b.amount budget,
+                          COALESCE(SUM(e.amount), 0) spent
+                   FROM (SELECT 'You' person UNION ALL SELECT 'Wife') people
+                   LEFT JOIN personal_budgets b ON b.month=? AND b.person=people.person
+                   LEFT JOIN expenses e ON e.person=people.person AND e.ownership='personal'
+                       AND e.expense_date >= ? AND e.expense_date < ?
+                   GROUP BY people.person, b.amount ORDER BY people.person""",
+                (month, month_start.isoformat(), next_month_start.isoformat()),
+            ))
+        self.json_response({"month": month, "budget": budget["amount"] if budget else None, "spent": spent, "personal_budgets": personal_budgets})
 
     def export_csv(self):
         import csv, io
@@ -185,17 +212,27 @@ class App(SimpleHTTPRequestHandler):
                 amount = round(float(data["amount"]), 2)
                 if not 0 < amount <= 9999999999.99:
                     raise ValueError
+                owner = data.get("owner", "shared")
+                if owner not in ("shared", "You", "Wife"):
+                    raise ValueError
                 month_start = parsed_month.date().replace(day=1)
                 if month_start.year == 9999 and month_start.month == 12:
                     raise ValueError
             except (KeyError, TypeError, ValueError):
-                return self.json_response({"error": "Enter a valid month and a budget greater than zero."}, 400)
+                return self.json_response({"error": "Enter a valid month, budget, and budget owner."}, 400)
             with db() as con:
-                con.execute(
-                    """INSERT INTO monthly_budgets(month, amount) VALUES(?, ?)
-                       ON CONFLICT(month) DO UPDATE SET amount=excluded.amount, updated_at=CURRENT_TIMESTAMP""",
-                    (month, amount),
-                )
+                if owner == "shared":
+                    con.execute(
+                        """INSERT INTO monthly_budgets(month, amount) VALUES(?, ?)
+                           ON CONFLICT(month) DO UPDATE SET amount=excluded.amount, updated_at=CURRENT_TIMESTAMP""",
+                        (month, amount),
+                    )
+                else:
+                    con.execute(
+                        """INSERT INTO personal_budgets(month, person, amount) VALUES(?, ?, ?)
+                           ON CONFLICT(month, person) DO UPDATE SET amount=excluded.amount, updated_at=CURRENT_TIMESTAMP""",
+                        (month, owner, amount),
+                    )
             return self.budget({"month": [month]})
         if self.path == "/api/categories":
             data = self.payload(); name = data.get("name", "").strip(); color = data.get("color", "#5B6CFF")
